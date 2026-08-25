@@ -11,9 +11,8 @@ export interface GrokVoiceConfig {
   voice: string;
   systemPrompt: string;
   onStatusChange?: (status: ConnectionStatus) => void;
-  onTranscript?: (text: string, isFinal: boolean, speaker: "user" | "assistant") => void;
+  onAudioLevel?: (level: number) => void;
   onError?: (error: Error) => void;
-  onDebug?: (message: string) => void;
 }
 
 export class GrokVoiceClient {
@@ -22,36 +21,31 @@ export class GrokVoiceClient {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  private analyser: AnalyserNode | null = null;
   private status: ConnectionStatus = "disconnected";
-  private lastFinalUserTranscript = "";
-  private lastFinalAssistantTranscript = "";
   
-  // Audio queue for sequential playback
   private audioQueue: ArrayBuffer[] = [];
   private isPlaying = false;
   private nextPlayTime = 0;
+  private levelInterval: number | null = null;
 
   constructor(config: GrokVoiceConfig) {
     this.config = config;
   }
 
-  private debug(msg: string): void {
-    console.log(`[GrokVoice] ${msg}`);
-    this.config.onDebug?.(msg);
-  }
-
   async connect(): Promise<void> {
     this.setStatus("connecting");
-    this.debug("Starting connection...");
 
     try {
       this.audioContext = new AudioContext({ sampleRate: 24000 });
-      this.debug(`AudioContext created, state: ${this.audioContext.state}`);
       
       if (this.audioContext.state === "suspended") {
         await this.audioContext.resume();
-        this.debug(`AudioContext resumed`);
       }
+      
+      // Create analyser for input visualization
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 256;
       
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -60,20 +54,23 @@ export class GrokVoiceClient {
           autoGainControl: true,
         },
       });
-      this.debug("Microphone access granted");
+
+      // Connect mic to analyser for level detection
+      const micSource = this.audioContext.createMediaStreamSource(this.mediaStream);
+      micSource.connect(this.analyser);
+      
+      // Start level monitoring
+      this.startLevelMonitoring();
 
       const wsUrl = "wss://api.x.ai/v1/realtime?model=grok-voice-latest";
-      this.debug(`Connecting to ${wsUrl}`);
-      
       this.ws = new WebSocket(wsUrl, [`xai-client-secret.${this.config.token}`]);
 
       this.ws.onopen = () => this.handleOpen();
       this.ws.onmessage = (event) => this.handleMessage(event);
-      this.ws.onerror = (e) => this.handleError(e);
+      this.ws.onerror = () => this.handleError();
       this.ws.onclose = (event) => this.handleClose(event);
     } catch (error) {
       this.setStatus("error");
-      this.debug(`Connection error: ${error}`);
       if (error instanceof Error) {
         if (error.name === "NotAllowedError") {
           this.config.onError?.(new Error("Mikrofon-Zugriff verweigert."));
@@ -87,9 +84,29 @@ export class GrokVoiceClient {
     }
   }
 
+  private startLevelMonitoring(): void {
+    if (!this.analyser) return;
+    
+    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    
+    const checkLevel = () => {
+      if (!this.analyser) return;
+      
+      this.analyser.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      const level = Math.min(1, average / 128);
+      
+      // Only send input level when listening
+      if (this.status === "listening") {
+        this.config.onAudioLevel?.(level);
+      }
+    };
+    
+    this.levelInterval = window.setInterval(checkLevel, 50);
+  }
+
   private async handleOpen(): Promise<void> {
     if (!this.ws) return;
-    this.debug("WebSocket connected");
 
     const sessionConfig = {
       type: "session.update",
@@ -105,18 +122,15 @@ export class GrokVoiceClient {
       },
     };
 
-    this.debug(`Sending session config`);
     this.ws.send(JSON.stringify(sessionConfig));
     this.setStatus("connected");
 
     await this.startAudioCapture();
 
-    // Trigger greeting - just create a response, the system prompt tells it to greet
-    this.debug("Triggering greeting...");
+    // Trigger greeting
     setTimeout(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: "response.create" }));
-        this.debug("Greeting triggered");
       }
     }, 300);
   }
@@ -179,9 +193,7 @@ export class GrokVoiceClient {
       source.connect(this.workletNode);
       
       this.setStatus("listening");
-      this.debug("Audio capture started");
     } catch (error) {
-      this.debug(`Audio capture error: ${error}`);
       this.config.onError?.(new Error("Audio capture failed"));
     }
   }
@@ -202,38 +214,14 @@ export class GrokVoiceClient {
       switch (message.type) {
         case "session.created":
         case "session.updated":
-          this.debug(`${message.type}`);
           break;
 
         case "input_audio_buffer.speech_started":
           this.setStatus("listening");
-          // Stop current playback when user starts speaking
           this.stopPlayback();
           break;
 
         case "input_audio_buffer.speech_stopped":
-          break;
-
-        case "conversation.item.input_audio_transcription.completed":
-          if (message.transcript && message.transcript !== this.lastFinalUserTranscript) {
-            this.lastFinalUserTranscript = message.transcript;
-            this.config.onTranscript?.(message.transcript, true, "user");
-          }
-          break;
-
-        case "response.audio_transcript.delta":
-        case "response.text.delta":
-          if (message.delta) {
-            this.config.onTranscript?.(message.delta, false, "assistant");
-          }
-          break;
-
-        case "response.audio_transcript.done":
-        case "response.text.done":
-          if (message.transcript && message.transcript !== this.lastFinalAssistantTranscript) {
-            this.lastFinalAssistantTranscript = message.transcript;
-            this.config.onTranscript?.(message.transcript, true, "assistant");
-          }
           break;
 
         case "response.audio.delta":
@@ -249,21 +237,19 @@ export class GrokVoiceClient {
           break;
 
         case "response.done":
-          // Wait for audio to finish, then set listening
           setTimeout(() => {
-            if (this.status === "speaking") {
+            if (this.status === "speaking" && this.audioQueue.length === 0 && !this.isPlaying) {
               this.setStatus("listening");
             }
-          }, 500);
+          }, 300);
           break;
 
         case "error":
-          this.debug(`Server error: ${JSON.stringify(message.error)}`);
           this.config.onError?.(new Error(message.error?.message || "Server error"));
           break;
       }
     } catch (error) {
-      this.debug(`Message parse error: ${error}`);
+      console.error("Message parse error:", error);
     }
   }
 
@@ -280,7 +266,7 @@ export class GrokVoiceClient {
       this.audioQueue.push(bytes.buffer);
       this.processAudioQueue();
     } catch (error) {
-      this.debug(`Audio decode error: ${error}`);
+      console.error("Audio decode error:", error);
     }
   }
 
@@ -296,7 +282,6 @@ export class GrokVoiceClient {
     
     this.isPlaying = false;
     
-    // Set back to listening after playback
     if (this.status === "speaking") {
       this.setStatus("listening");
     }
@@ -313,9 +298,15 @@ export class GrokVoiceClient {
 
         const pcm16 = new Int16Array(buffer);
         const float32 = new Float32Array(pcm16.length);
+        
+        // Calculate audio level from output
+        let sum = 0;
         for (let i = 0; i < pcm16.length; i++) {
           float32[i] = pcm16[i] / 32768;
+          sum += Math.abs(float32[i]);
         }
+        const level = Math.min(1, (sum / pcm16.length) * 8);
+        this.config.onAudioLevel?.(level);
 
         const audioBuffer = this.audioContext!.createBuffer(1, float32.length, 24000);
         audioBuffer.copyToChannel(float32, 0);
@@ -324,21 +315,15 @@ export class GrokVoiceClient {
         source.buffer = audioBuffer;
         source.connect(this.audioContext!.destination);
         
-        // Schedule playback
         const currentTime = this.audioContext!.currentTime;
         const startTime = Math.max(currentTime, this.nextPlayTime);
         source.start(startTime);
         
-        // Update next play time
         this.nextPlayTime = startTime + audioBuffer.duration;
         
-        // Resolve after the audio finishes
         source.onended = () => resolve();
-        
-        // Fallback timeout in case onended doesn't fire
         setTimeout(resolve, audioBuffer.duration * 1000 + 50);
       } catch (error) {
-        this.debug(`Playback error: ${error}`);
         resolve();
       }
     });
@@ -348,16 +333,15 @@ export class GrokVoiceClient {
     this.audioQueue = [];
     this.isPlaying = false;
     this.nextPlayTime = 0;
+    this.config.onAudioLevel?.(0);
   }
 
-  private handleError(e: Event): void {
-    this.debug(`WebSocket error: ${e}`);
+  private handleError(): void {
     this.setStatus("error");
     this.config.onError?.(new Error("WebSocket Verbindungsfehler"));
   }
 
   private handleClose(event: CloseEvent): void {
-    this.debug(`WebSocket closed: code=${event.code}`);
     this.setStatus("disconnected");
     
     if (event.code !== 1000) {
@@ -366,8 +350,6 @@ export class GrokVoiceClient {
         errorMsg = "Verbindung zum Server verloren";
       } else if (event.code === 4001) {
         errorMsg = "Authentifizierung fehlgeschlagen";
-      } else if (event.code === 4002) {
-        errorMsg = "Ungültiger Token";
       }
       this.config.onError?.(new Error(errorMsg));
     }
@@ -380,6 +362,10 @@ export class GrokVoiceClient {
 
   disconnect(): void {
     this.stopPlayback();
+    if (this.levelInterval) {
+      clearInterval(this.levelInterval);
+      this.levelInterval = null;
+    }
     if (this.ws) {
       this.ws.close(1000);
       this.ws = null;
@@ -393,6 +379,7 @@ export class GrokVoiceClient {
       this.audioContext = null;
     }
     this.workletNode = null;
+    this.analyser = null;
     this.setStatus("disconnected");
   }
 

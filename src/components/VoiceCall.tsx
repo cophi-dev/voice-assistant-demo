@@ -4,12 +4,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { GrokVoiceClient, ConnectionStatus } from "@/lib/voice/grok-voice-client";
 import { BusinessConfig } from "@/lib/config/businesses";
 
-interface Transcript {
-  id: string;
-  speaker: "user" | "assistant";
-  text: string;
-}
-
 interface VoiceCallProps {
   business: BusinessConfig;
   onEnd: () => void;
@@ -18,30 +12,17 @@ interface VoiceCallProps {
 export function VoiceCall({ business, onEnd }: VoiceCallProps) {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [error, setError] = useState<string | null>(null);
-  const [transcripts, setTranscripts] = useState<Transcript[]>([]);
-  const [currentUserText, setCurrentUserText] = useState("");
-  const [currentAssistantText, setCurrentAssistantText] = useState("");
   const [callDuration, setCallDuration] = useState(0);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [showDebug, setShowDebug] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const clientRef = useRef<GrokVoiceClient | null>(null);
-  const transcriptIdRef = useRef(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const transcriptsEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = useCallback(() => {
-    transcriptsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [transcripts, currentUserText, currentAssistantText, scrollToBottom]);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationRef = useRef<number | null>(null);
 
   const startCall = useCallback(async () => {
     setError(null);
     setStatus("connecting");
-    setDebugLogs([]);
 
     try {
       const response = await fetch("/api/session", {
@@ -62,35 +43,10 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
         voice: businessData.voice,
         systemPrompt: businessData.systemPrompt,
         onStatusChange: setStatus,
-        onTranscript: (text, isFinal, speaker) => {
-          if (speaker === "user") {
-            if (isFinal) {
-              setTranscripts((prev) => [
-                ...prev,
-                { id: `t-${++transcriptIdRef.current}`, speaker: "user", text },
-              ]);
-              setCurrentUserText("");
-            } else {
-              setCurrentUserText(text);
-            }
-          } else {
-            if (isFinal) {
-              setTranscripts((prev) => [
-                ...prev,
-                { id: `t-${++transcriptIdRef.current}`, speaker: "assistant", text },
-              ]);
-              setCurrentAssistantText("");
-            } else {
-              setCurrentAssistantText((prev) => prev + text);
-            }
-          }
-        },
+        onAudioLevel: setAudioLevel,
         onError: (err) => {
           setError(err.message);
           setStatus("error");
-        },
-        onDebug: (msg) => {
-          setDebugLogs((prev) => [...prev.slice(-50), `${new Date().toLocaleTimeString()}: ${msg}`]);
         },
       });
 
@@ -115,6 +71,9 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
     setStatus("disconnected");
     onEnd();
   }, [onEnd]);
@@ -129,6 +88,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
       mounted = false;
       if (clientRef.current) clientRef.current.disconnect();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [business.id]);
@@ -143,113 +103,102 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
     switch (status) {
       case "connecting": return "Verbinde...";
       case "connected": return "Verbunden";
-      case "listening": return "Hört zu";
-      case "speaking": return "Spricht";
+      case "listening": return "H\u00f6rt zu";
+      case "speaking": return "Lexi spricht";
       case "error": return "Fehler";
       default: return "Getrennt";
     }
   };
 
+  // Generate bars for visualization
+  const bars = 32;
+  const getBarHeight = (index: number): number => {
+    if (status !== "speaking" && status !== "listening") return 4;
+    
+    const centerIndex = bars / 2;
+    const distanceFromCenter = Math.abs(index - centerIndex) / centerIndex;
+    const baseHeight = status === "speaking" ? audioLevel * 100 : audioLevel * 40;
+    const variation = Math.sin(Date.now() / 100 + index * 0.5) * 0.3 + 0.7;
+    const centerBoost = 1 - distanceFromCenter * 0.6;
+    
+    return Math.max(4, baseHeight * variation * centerBoost);
+  };
+
   return (
     <div className="fixed inset-0 bg-[#0a0a0a] z-50 flex flex-col">
       {/* Header */}
-      <div className="border-b border-neutral-800 px-6 py-4">
+      <div className="px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-xl">{business.icon}</span>
+            <span className="text-2xl">{business.icon}</span>
             <div>
-              <h2 className="font-medium text-white text-sm">{business.name}</h2>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${
-                  status === "listening" ? "bg-green-500" :
-                  status === "speaking" ? "bg-orange-500 animate-pulse" :
-                  status === "error" ? "bg-red-500" :
-                  "bg-neutral-500"
-                }`} />
-                <span className="text-xs text-neutral-500">{getStatusText()}</span>
-              </div>
+              <h2 className="font-medium text-white">{business.name}</h2>
+              <p className="text-xs text-neutral-500 mt-0.5">{getStatusText()}</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-neutral-500 text-sm font-mono">{formatDuration(callDuration)}</span>
-            <button
-              onClick={() => setShowDebug(!showDebug)}
-              className="text-xs text-neutral-600 hover:text-neutral-400"
-            >
-              {showDebug ? "Hide Debug" : "Debug"}
-            </button>
-          </div>
+          <span className="text-neutral-400 text-lg font-mono">{formatDuration(callDuration)}</span>
         </div>
       </div>
 
-      {/* Debug Panel */}
-      {showDebug && (
-        <div className="border-b border-neutral-800 px-6 py-2 bg-neutral-950 max-h-32 overflow-y-auto">
-          <div className="max-w-2xl mx-auto">
-            {debugLogs.map((log, i) => (
-              <div key={i} className="text-xs text-neutral-500 font-mono">{log}</div>
+      {/* Main Visualization */}
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-12">
+          {/* Waveform */}
+          <div className="flex items-center justify-center gap-1 h-32">
+            {Array.from({ length: bars }).map((_, i) => (
+              <div
+                key={i}
+                className={`w-1.5 rounded-full transition-all duration-75 ${
+                  status === "speaking" 
+                    ? "bg-gradient-to-t from-orange-600 to-orange-400" 
+                    : status === "listening"
+                    ? "bg-gradient-to-t from-neutral-700 to-neutral-500"
+                    : "bg-neutral-800"
+                }`}
+                style={{
+                  height: `${getBarHeight(i)}px`,
+                }}
+              />
             ))}
-            {debugLogs.length === 0 && (
-              <div className="text-xs text-neutral-600">No debug logs yet...</div>
-            )}
           </div>
-        </div>
-      )}
 
-      {/* Transcripts */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-8 space-y-4">
-          {transcripts.length === 0 && !currentAssistantText && status === "listening" && (
-            <p className="text-neutral-600 text-center py-12">Warte auf Begrüßung...</p>
-          )}
-          
-          {transcripts.map((t) => (
-            <div key={t.id} className={t.speaker === "user" ? "text-right" : "text-left"}>
-              <p className={`inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm ${
-                t.speaker === "user"
-                  ? "bg-neutral-800 text-neutral-200"
-                  : "bg-orange-500/20 text-orange-100"
-              }`}>
-                {t.text}
-              </p>
-            </div>
-          ))}
-          
-          {/* Current streaming text */}
-          {currentAssistantText && (
-            <div className="text-left">
-              <p className="inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm bg-orange-500/20 text-orange-100 opacity-70">
-                {currentAssistantText}
-              </p>
-            </div>
-          )}
-          {currentUserText && (
-            <div className="text-right">
-              <p className="inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm bg-neutral-800 text-neutral-200 opacity-70">
-                {currentUserText}
-              </p>
-            </div>
-          )}
-          
-          <div ref={transcriptsEndRef} />
+          {/* Status indicator */}
+          <div className="flex items-center gap-3">
+            <span className={`w-2 h-2 rounded-full ${
+              status === "speaking" ? "bg-orange-500 animate-pulse" :
+              status === "listening" ? "bg-green-500" :
+              status === "connecting" ? "bg-yellow-500 animate-pulse" :
+              status === "error" ? "bg-red-500" :
+              "bg-neutral-600"
+            }`} />
+            <span className="text-neutral-400 text-sm">
+              {status === "speaking" ? "Lexi spricht..." : 
+               status === "listening" ? "Ich h\u00f6re zu..." :
+               status === "connecting" ? "Verbinde..." :
+               status === "error" ? "Verbindungsfehler" :
+               ""}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Error */}
       {error && (
-        <div className="px-6 py-3 bg-red-950/50 border-t border-red-900/50">
+        <div className="px-6 py-3 bg-red-950/50">
           <p className="text-red-400 text-sm text-center">{error}</p>
         </div>
       )}
 
       {/* Controls */}
-      <div className="border-t border-neutral-800 px-6 py-6">
+      <div className="px-6 py-8">
         <div className="max-w-2xl mx-auto flex justify-center">
           <button
             onClick={endCall}
-            className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-full transition-colors"
+            className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition-colors"
           >
-            Auflegen
+            <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.1-.7-.28-.79-.73-1.68-1.36-2.66-1.85a.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+            </svg>
           </button>
         </div>
       </div>
