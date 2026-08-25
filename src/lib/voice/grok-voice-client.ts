@@ -1,3 +1,11 @@
+export type ConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "listening"
+  | "speaking"
+  | "error";
+
 export interface GrokVoiceConfig {
   token: string;
   voice: string;
@@ -7,24 +15,16 @@ export interface GrokVoiceConfig {
   onError?: (error: Error) => void;
 }
 
-export type ConnectionStatus = 
-  | "disconnected" 
-  | "connecting" 
-  | "connected" 
-  | "listening" 
-  | "speaking"
-  | "error";
-
 export class GrokVoiceClient {
+  private config: GrokVoiceConfig;
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
-  private audioWorklet: AudioWorkletNode | null = null;
-  private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private playbackQueue: Float32Array[] = [];
-  private isPlaying = false;
-  private config: GrokVoiceConfig;
+  private workletNode: AudioWorkletNode | null = null;
   private status: ConnectionStatus = "disconnected";
+  private currentUserTranscript = "";
+  private lastFinalUserTranscript = "";
+  private lastFinalAssistantTranscript = "";
 
   constructor(config: GrokVoiceConfig) {
     this.config = config;
@@ -44,7 +44,7 @@ export class GrokVoiceClient {
         },
       });
 
-      const wsUrl = "wss://api.x.ai/v1/realtime?model=grok-voice-latest";
+      const wsUrl = "wss://api.x.ai/v1/realtime?model=grok-3-fast-realtime";
       this.ws = new WebSocket(wsUrl, [`xai-client-secret.${this.config.token}`]);
 
       this.ws.onopen = () => this.handleOpen();
@@ -55,7 +55,7 @@ export class GrokVoiceClient {
       this.setStatus("error");
       if (error instanceof Error) {
         if (error.name === "NotAllowedError") {
-          this.config.onError?.(new Error("Microphone access denied. Please allow microphone access."));
+          this.config.onError?.(new Error("Mikrofon-Zugriff verweigert. Bitte erlauben Sie den Zugriff."));
         } else {
           this.config.onError?.(error);
         }
@@ -69,7 +69,6 @@ export class GrokVoiceClient {
   private async handleOpen(): Promise<void> {
     if (!this.ws) return;
 
-    // Session config matching xAI official examples
     const sessionConfig = {
       type: "session.update",
       session: {
@@ -78,6 +77,9 @@ export class GrokVoiceClient {
         turn_detection: {
           type: "server_vad",
         },
+        input_audio_transcription: {
+          model: "grok-2-latest"
+        }
       },
     };
 
@@ -85,162 +87,206 @@ export class GrokVoiceClient {
     this.setStatus("connected");
 
     await this.startAudioCapture();
+
+    // Trigger the greeting by creating an initial response
+    setTimeout(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "response.create" }));
+      }
+    }, 500);
   }
 
   private async startAudioCapture(): Promise<void> {
-    if (!this.audioContext || !this.mediaStream) return;
+    if (!this.audioContext || !this.mediaStream || !this.ws) return;
 
-    await this.audioContext.audioWorklet.addModule(
-      URL.createObjectURL(
-        new Blob(
-          [
-            `
+    try {
+      await this.audioContext.audioWorklet.addModule(
+        "data:text/javascript," +
+          encodeURIComponent(`
             class AudioProcessor extends AudioWorkletProcessor {
+              constructor() {
+                super();
+                this.buffer = new Float32Array(0);
+              }
+              
               process(inputs) {
                 const input = inputs[0];
                 if (input && input[0]) {
-                  const samples = input[0];
-                  const int16 = new Int16Array(samples.length);
-                  for (let i = 0; i < samples.length; i++) {
-                    const s = Math.max(-1, Math.min(1, samples[i]));
-                    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                  const newBuffer = new Float32Array(this.buffer.length + input[0].length);
+                  newBuffer.set(this.buffer);
+                  newBuffer.set(input[0], this.buffer.length);
+                  this.buffer = newBuffer;
+                  
+                  // Send chunks of ~100ms at 24kHz = 2400 samples
+                  while (this.buffer.length >= 2400) {
+                    const chunk = this.buffer.slice(0, 2400);
+                    this.buffer = this.buffer.slice(2400);
+                    
+                    // Convert to 16-bit PCM
+                    const pcm = new Int16Array(chunk.length);
+                    for (let i = 0; i < chunk.length; i++) {
+                      pcm[i] = Math.max(-32768, Math.min(32767, chunk[i] * 32768));
+                    }
+                    
+                    this.port.postMessage(pcm.buffer, [pcm.buffer]);
                   }
-                  this.port.postMessage(int16.buffer);
                 }
                 return true;
               }
             }
             registerProcessor('audio-processor', AudioProcessor);
-          `,
-          ],
-          { type: "application/javascript" }
-        )
-      )
-    );
+          `)
+      );
 
-    this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
-    this.audioWorklet = new AudioWorkletNode(this.audioContext, "audio-processor");
+      const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+      this.workletNode = new AudioWorkletNode(this.audioContext, "audio-processor");
+      
+      this.workletNode.port.onmessage = (event) => {
+        if (this.ws?.readyState === WebSocket.OPEN) {
+          const base64 = this.arrayBufferToBase64(event.data);
+          this.ws.send(
+            JSON.stringify({
+              type: "input_audio_buffer.append",
+              audio: base64,
+            })
+          );
+        }
+      };
 
-    this.audioWorklet.port.onmessage = (event) => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        const base64Audio = this.arrayBufferToBase64(event.data);
-        this.ws.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: base64Audio,
-          })
-        );
-      }
-    };
+      source.connect(this.workletNode);
+      this.workletNode.connect(this.audioContext.destination);
+      
+      this.setStatus("listening");
+    } catch (error) {
+      console.error("Audio capture error:", error);
+      this.config.onError?.(new Error("Audio capture failed"));
+    }
+  }
 
-    this.sourceNode.connect(this.audioWorklet);
-    this.audioWorklet.connect(this.audioContext.destination);
-
-    this.setStatus("listening");
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
   }
 
   private handleMessage(event: MessageEvent): void {
     try {
-      const data = JSON.parse(event.data);
+      const message = JSON.parse(event.data);
 
-      switch (data.type) {
+      switch (message.type) {
         case "session.created":
         case "session.updated":
+          // Session ready
           break;
 
         case "input_audio_buffer.speech_started":
           this.setStatus("listening");
+          this.currentUserTranscript = "";
           break;
 
         case "input_audio_buffer.speech_stopped":
           break;
 
         case "conversation.item.input_audio_transcription.completed":
-          if (data.transcript) {
-            this.config.onTranscript?.(data.transcript, true, "user");
+          // Final user transcript
+          if (message.transcript && message.transcript !== this.lastFinalUserTranscript) {
+            this.lastFinalUserTranscript = message.transcript;
+            this.config.onTranscript?.(message.transcript, true, "user");
           }
-          break;
-
-        case "response.audio.delta":
-        case "response.output_audio.delta":
-          this.setStatus("speaking");
-          if (data.delta) {
-            const audioData = this.base64ToFloat32(data.delta);
-            this.playbackQueue.push(audioData);
-            this.processPlaybackQueue();
-          }
-          break;
-
-        case "response.audio.done":
-        case "response.output_audio.done":
           break;
 
         case "response.audio_transcript.delta":
-        case "response.output_audio_transcript.delta":
-          if (data.delta) {
-            this.config.onTranscript?.(data.delta, false, "assistant");
+          // Streaming assistant text
+          if (message.delta) {
+            this.config.onTranscript?.(message.delta, false, "assistant");
           }
           break;
 
         case "response.audio_transcript.done":
-        case "response.output_audio_transcript.done":
-          if (data.transcript) {
-            this.config.onTranscript?.(data.transcript, true, "assistant");
+          // Final assistant transcript
+          if (message.transcript && message.transcript !== this.lastFinalAssistantTranscript) {
+            this.lastFinalAssistantTranscript = message.transcript;
+            this.config.onTranscript?.(message.transcript, true, "assistant");
           }
           break;
 
+        case "response.audio.delta":
+          // Play audio
+          if (message.delta) {
+            this.setStatus("speaking");
+            this.playAudio(message.delta);
+          }
+          break;
+
+        case "response.audio.done":
+          this.setStatus("listening");
+          break;
+
         case "response.done":
-          setTimeout(() => {
-            if (this.status === "speaking") {
-              this.setStatus("listening");
-            }
-          }, 500);
+          this.setStatus("listening");
           break;
 
         case "error":
-          console.error("Grok Voice error:", data.error);
-          this.config.onError?.(new Error(data.error?.message || "Voice API error"));
+          console.error("Server error:", message.error);
+          this.config.onError?.(new Error(message.error?.message || "Server error"));
           break;
       }
     } catch (error) {
-      console.error("Error parsing message:", error);
+      console.error("Message parse error:", error);
+    }
+  }
+
+  private async playAudio(base64Audio: string): Promise<void> {
+    if (!this.audioContext) return;
+
+    try {
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // xAI returns 16-bit PCM at 24kHz
+      const pcm16 = new Int16Array(bytes.buffer);
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) {
+        float32[i] = pcm16[i] / 32768;
+      }
+
+      const audioBuffer = this.audioContext.createBuffer(1, float32.length, 24000);
+      audioBuffer.copyToChannel(float32, 0);
+
+      const source = this.audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.audioContext.destination);
+      source.start();
+    } catch (error) {
+      console.error("Audio playback error:", error);
     }
   }
 
   private handleError(): void {
     this.setStatus("error");
-    this.config.onError?.(new Error("Connection failed. Check console.x.ai for credits."));
+    this.config.onError?.(new Error("WebSocket Verbindungsfehler"));
   }
 
   private handleClose(event: CloseEvent): void {
     this.setStatus("disconnected");
+    
     if (event.code !== 1000) {
-      this.config.onError?.(new Error(event.reason || "Connection closed"));
+      let errorMsg = "Verbindung geschlossen";
+      if (event.code === 1006) {
+        errorMsg = "Verbindung zum Server verloren";
+      } else if (event.code === 4001) {
+        errorMsg = "Authentifizierung fehlgeschlagen";
+      } else if (event.code === 4002) {
+        errorMsg = "Ungültiger Token";
+      }
+      this.config.onError?.(new Error(errorMsg));
     }
-    this.cleanup();
-  }
-
-  private processPlaybackQueue(): void {
-    if (this.isPlaying || this.playbackQueue.length === 0 || !this.audioContext) {
-      return;
-    }
-
-    this.isPlaying = true;
-    const audioData = this.playbackQueue.shift()!;
-
-    const audioBuffer = this.audioContext.createBuffer(1, audioData.length, 24000);
-    audioBuffer.getChannelData(0).set(audioData);
-
-    const source = this.audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(this.audioContext.destination);
-
-    source.onended = () => {
-      this.isPlaying = false;
-      this.processPlaybackQueue();
-    };
-
-    source.start();
   }
 
   private setStatus(status: ConnectionStatus): void {
@@ -248,44 +294,10 @@ export class GrokVoiceClient {
     this.config.onStatusChange?.(status);
   }
 
-  private arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-
-  private base64ToFloat32(base64: string): Float32Array {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const int16 = new Int16Array(bytes.buffer);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-      float32[i] = int16[i] / 32768;
-    }
-    return float32;
-  }
-
   disconnect(): void {
     if (this.ws) {
-      this.ws.close();
-    }
-    this.cleanup();
-  }
-
-  private cleanup(): void {
-    if (this.audioWorklet) {
-      this.audioWorklet.disconnect();
-      this.audioWorklet = null;
-    }
-    if (this.sourceNode) {
-      this.sourceNode.disconnect();
-      this.sourceNode = null;
+      this.ws.close(1000);
+      this.ws = null;
     }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
@@ -295,8 +307,8 @@ export class GrokVoiceClient {
       this.audioContext.close();
       this.audioContext = null;
     }
-    this.playbackQueue = [];
-    this.isPlaying = false;
+    this.workletNode = null;
+    this.setStatus("disconnected");
   }
 
   getStatus(): ConnectionStatus {
