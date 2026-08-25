@@ -15,10 +15,15 @@ export interface GrokVoiceConfig {
   onError?: (error: Error) => void;
 }
 
+// Extend AudioContext type for setSinkId support
+interface AudioContextWithSinkId extends AudioContext {
+  setSinkId?: (sinkId: string) => Promise<void>;
+}
+
 export class GrokVoiceClient {
   private config: GrokVoiceConfig;
   private ws: WebSocket | null = null;
-  private audioContext: AudioContext | null = null;
+  private audioContext: AudioContextWithSinkId | null = null;
   private mediaStream: MediaStream | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private analyser: AnalyserNode | null = null;
@@ -37,13 +42,26 @@ export class GrokVoiceClient {
     this.setStatus("connecting");
 
     try {
-      this.audioContext = new AudioContext({ sampleRate: 24000 });
+      // Get the preferred audio output device
+      const outputDeviceId = await this.getPreferredOutputDevice();
+      
+      // Create AudioContext with preferred device if supported
+      this.audioContext = new AudioContext({ sampleRate: 24000 }) as AudioContextWithSinkId;
+      
+      // Try to set output device (Chrome 110+, not Safari)
+      if (outputDeviceId && this.audioContext.setSinkId) {
+        try {
+          await this.audioContext.setSinkId(outputDeviceId);
+          console.log("Audio output set to:", outputDeviceId);
+        } catch (e) {
+          console.log("Could not set audio output device:", e);
+        }
+      }
       
       if (this.audioContext.state === "suspended") {
         await this.audioContext.resume();
       }
       
-      // Create analyser for input visualization
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       
@@ -55,11 +73,9 @@ export class GrokVoiceClient {
         },
       });
 
-      // Connect mic to analyser for level detection
       const micSource = this.audioContext.createMediaStreamSource(this.mediaStream);
       micSource.connect(this.analyser);
       
-      // Start level monitoring
       this.startLevelMonitoring();
 
       const wsUrl = "wss://api.x.ai/v1/realtime?model=grok-voice-latest";
@@ -84,6 +100,33 @@ export class GrokVoiceClient {
     }
   }
 
+  private async getPreferredOutputDevice(): Promise<string | null> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioOutputs = devices.filter(d => d.kind === "audiooutput");
+      
+      // Look for bluetooth/headphones first
+      const headphones = audioOutputs.find(d => 
+        d.label.toLowerCase().includes("bluetooth") ||
+        d.label.toLowerCase().includes("headphone") ||
+        d.label.toLowerCase().includes("airpod") ||
+        d.label.toLowerCase().includes("kopfhörer")
+      );
+      
+      if (headphones) {
+        console.log("Found headphones:", headphones.label);
+        return headphones.deviceId;
+      }
+      
+      // Return first non-default device, or null for default
+      const nonDefault = audioOutputs.find(d => d.deviceId !== "default" && d.deviceId !== "");
+      return nonDefault?.deviceId || null;
+    } catch (e) {
+      console.log("Could not enumerate devices:", e);
+      return null;
+    }
+  }
+
   private startLevelMonitoring(): void {
     if (!this.analyser) return;
     
@@ -96,7 +139,6 @@ export class GrokVoiceClient {
       const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
       const level = Math.min(1, average / 128);
       
-      // Only send input level when listening
       if (this.status === "listening") {
         this.config.onAudioLevel?.(level);
       }
@@ -127,7 +169,6 @@ export class GrokVoiceClient {
 
     await this.startAudioCapture();
 
-    // Trigger greeting
     setTimeout(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: "response.create" }));
@@ -299,7 +340,6 @@ export class GrokVoiceClient {
         const pcm16 = new Int16Array(buffer);
         const float32 = new Float32Array(pcm16.length);
         
-        // Calculate audio level from output
         let sum = 0;
         for (let i = 0; i < pcm16.length; i++) {
           float32[i] = pcm16[i] / 32768;
