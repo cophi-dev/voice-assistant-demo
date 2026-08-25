@@ -4,6 +4,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { GrokVoiceClient, ConnectionStatus } from "@/lib/voice/grok-voice-client";
 import { BusinessConfig } from "@/lib/config/businesses";
 
+const DEMO_DURATION_SECONDS = 30;
+const WARNING_THRESHOLD_SECONDS = 10;
+
 interface VoiceCallProps {
   business: BusinessConfig;
   onEnd: () => void;
@@ -18,6 +21,10 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
   const clientRef = useRef<GrokVoiceClient | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const animationRef = useRef<number | null>(null);
+
+  const remainingTime = DEMO_DURATION_SECONDS - callDuration;
+  const showWarning = remainingTime <= WARNING_THRESHOLD_SECONDS && remainingTime > 0;
+  const isExpired = remainingTime <= 0;
 
   const startCall = useCallback(async () => {
     setError(null);
@@ -77,6 +84,13 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
     onEnd();
   }, [onEnd]);
 
+  // Auto-end when time expires
+  useEffect(() => {
+    if (isExpired) {
+      endCall();
+    }
+  }, [isExpired, endCall]);
+
   useEffect(() => {
     let mounted = true;
     const initCall = async () => {
@@ -135,9 +149,21 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
               <p className="text-xs text-neutral-500 mt-0.5">{getStatusText()}</p>
             </div>
           </div>
-          <span className="text-neutral-400 text-lg font-mono">{formatDuration(callDuration)}</span>
+          <div className="text-right">
+            <span className="text-neutral-400 text-lg font-mono">{formatDuration(callDuration)}</span>
+            <p className="text-xs text-neutral-600">/ {formatDuration(DEMO_DURATION_SECONDS)}</p>
+          </div>
         </div>
       </div>
+
+      {/* Demo time warning */}
+      {showWarning && (
+        <div className="px-6 py-2 bg-orange-950/50 border-y border-orange-900/50">
+          <p className="text-orange-400 text-sm text-center font-medium">
+            Demo endet in {remainingTime} Sekunden
+          </p>
+        </div>
+      )}
 
       {/* Main Visualization */}
       <div className="flex-1 flex items-center justify-center">
@@ -179,7 +205,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
                  ""}
               </span>
             </div>
-            {status === "listening" && (
+            {status === "listening" && !showWarning && (
               <span className="text-neutral-600 text-xs">
                 {business.assistantPersonality}
               </span>
@@ -197,7 +223,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
 
       {/* Controls */}
       <div className="px-6 py-8">
-        <div className="max-w-2xl mx-auto flex justify-center">
+        <div className="max-w-2xl mx-auto flex flex-col items-center gap-4">
           <button
             onClick={endCall}
             className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition-colors"
@@ -206,6 +232,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
               <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.1-.7-.28-.79-.73-1.68-1.36-2.66-1.85a.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
             </svg>
           </button>
+          <span className="text-neutral-600 text-xs">Demo-Anruf</span>
         </div>
       </div>
     </div>
