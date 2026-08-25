@@ -41,7 +41,6 @@ export class GrokVoiceClient {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 24000,
         },
       });
 
@@ -70,6 +69,7 @@ export class GrokVoiceClient {
   private async handleOpen(): Promise<void> {
     if (!this.ws) return;
 
+    // Session config matching xAI official examples
     const sessionConfig = {
       type: "session.update",
       session: {
@@ -77,20 +77,6 @@ export class GrokVoiceClient {
         instructions: this.config.systemPrompt,
         turn_detection: {
           type: "server_vad",
-          silence_duration_ms: 600,
-        },
-        audio: {
-          input: {
-            format: { type: "audio/pcm", rate: 24000 },
-            transport: "json",
-          },
-          output: {
-            format: { type: "audio/pcm", rate: 24000 },
-            transport: "json",
-          },
-        },
-        input_audio_transcription: {
-          model: "grok-2-vision-mini",
         },
       },
     };
@@ -110,11 +96,6 @@ export class GrokVoiceClient {
           [
             `
             class AudioProcessor extends AudioWorkletProcessor {
-              constructor() {
-                super();
-                this.buffer = [];
-              }
-              
               process(inputs) {
                 const input = inputs[0];
                 if (input && input[0]) {
@@ -174,18 +155,13 @@ export class GrokVoiceClient {
         case "input_audio_buffer.speech_stopped":
           break;
 
-        case "conversation.item.input_audio_transcription.delta":
-          if (data.delta) {
-            this.config.onTranscript?.(data.delta, false, "user");
-          }
-          break;
-
         case "conversation.item.input_audio_transcription.completed":
           if (data.transcript) {
             this.config.onTranscript?.(data.transcript, true, "user");
           }
           break;
 
+        case "response.audio.delta":
         case "response.output_audio.delta":
           this.setStatus("speaking");
           if (data.delta) {
@@ -195,15 +171,18 @@ export class GrokVoiceClient {
           }
           break;
 
+        case "response.audio.done":
         case "response.output_audio.done":
           break;
 
+        case "response.audio_transcript.delta":
         case "response.output_audio_transcript.delta":
           if (data.delta) {
             this.config.onTranscript?.(data.delta, false, "assistant");
           }
           break;
 
+        case "response.audio_transcript.done":
         case "response.output_audio_transcript.done":
           if (data.transcript) {
             this.config.onTranscript?.(data.transcript, true, "assistant");
@@ -230,19 +209,13 @@ export class GrokVoiceClient {
 
   private handleError(): void {
     this.setStatus("error");
-    this.config.onError?.(new Error("Connection failed. Check your API credits at console.x.ai"));
+    this.config.onError?.(new Error("Connection failed. Check console.x.ai for credits."));
   }
 
   private handleClose(event: CloseEvent): void {
     this.setStatus("disconnected");
     if (event.code !== 1000) {
-      let reason = "Connection closed unexpectedly";
-      if (event.code === 1006) {
-        reason = "Connection failed. Possibly invalid token or insufficient credits.";
-      } else if (event.reason) {
-        reason = event.reason;
-      }
-      this.config.onError?.(new Error(reason));
+      this.config.onError?.(new Error(event.reason || "Connection closed"));
     }
     this.cleanup();
   }
