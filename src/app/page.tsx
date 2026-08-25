@@ -12,8 +12,8 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-neutral-800">
         <div className="max-w-3xl mx-auto px-6 py-6">
-          <h1 className="text-xl font-medium text-white">Phonely</h1>
-          <p className="text-neutral-500 text-sm mt-1">KI-Telefonassistent für Unternehmen</p>
+          <h1 className="text-xl font-medium text-white">Lexi</h1>
+          <p className="text-neutral-500 text-sm mt-1">KI-Telefonassistentin für Unternehmen</p>
         </div>
       </header>
 
@@ -22,7 +22,7 @@ export default function Home() {
         <div className="mb-8">
           <p className="text-neutral-400 text-sm">
             Wählen Sie ein Demo-Unternehmen und führen Sie ein Testgespräch.
-            Der Assistent begrüßt Sie und kann Termine buchen.
+            Lexi begrüßt Sie und kann Termine buchen.
           </p>
         </div>
 

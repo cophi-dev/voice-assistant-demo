@@ -8,11 +8,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Phonely | KI-Telefonassistent",
-  description: "Intelligenter Telefonassistent für Kleinunternehmen. Termine buchen, Fragen beantworten, 24/7 erreichbar.",
+  title: "Lexi | KI-Telefonassistentin",
+  description: "Lexi - Ihre intelligente Telefonassistentin für Kleinunternehmen. Termine buchen, Fragen beantworten, 24/7 erreichbar.",
   openGraph: {
-    title: "Phonely | KI-Telefonassistent",
-    description: "Intelligenter Telefonassistent für Kleinunternehmen",
+    title: "Lexi | KI-Telefonassistentin",
+    description: "Lexi - Ihre intelligente Telefonassistentin für Kleinunternehmen",
     type: "website",
   },
 };
