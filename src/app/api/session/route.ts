@@ -11,7 +11,7 @@ export async function POST(request: Request) {
 
   if (!apiKey) {
     return NextResponse.json(
-      { error: "XAI_API_KEY not configured. Add it in Vercel Environment Variables." },
+      { error: "XAI_API_KEY not configured" },
       { status: 500 }
     );
   }
@@ -42,27 +42,28 @@ export async function POST(request: Request) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("xAI API error:", response.status, errorText);
-      
-      let errorMessage = "Failed to create session";
-      if (response.status === 401) {
-        errorMessage = "Invalid API key. Check your XAI_API_KEY.";
-      } else if (response.status === 402 || response.status === 429) {
-        errorMessage = "Insufficient credits or rate limited. Please add credits at console.x.ai";
-      } else if (response.status === 403) {
-        errorMessage = "API key does not have access to Voice API.";
-      }
-      
       return NextResponse.json(
-        { error: errorMessage },
+        { error: `xAI API error: ${response.status} - ${errorText}` },
         { status: response.status }
       );
     }
 
     const data = await response.json();
+    
+    // xAI returns { value: "token", expires_at: timestamp }
+    const token = data.value || data.client_secret?.value;
+    
+    if (!token) {
+      console.error("No token in response:", JSON.stringify(data));
+      return NextResponse.json(
+        { error: "No token received from xAI" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
-      token: data.client_secret?.value || data.token,
-      expiresAt: data.client_secret?.expires_at || data.expires_at,
+      token,
+      expiresAt: data.expires_at || data.client_secret?.expires_at,
       business: {
         id: business.id,
         name: business.name,
