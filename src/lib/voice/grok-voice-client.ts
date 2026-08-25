@@ -50,11 +50,19 @@ export class GrokVoiceClient {
 
       this.ws.onopen = () => this.handleOpen();
       this.ws.onmessage = (event) => this.handleMessage(event);
-      this.ws.onerror = (event) => this.handleError(event);
-      this.ws.onclose = () => this.handleClose();
+      this.ws.onerror = () => this.handleError();
+      this.ws.onclose = (event) => this.handleClose(event);
     } catch (error) {
       this.setStatus("error");
-      this.config.onError?.(error instanceof Error ? error : new Error(String(error)));
+      if (error instanceof Error) {
+        if (error.name === "NotAllowedError") {
+          this.config.onError?.(new Error("Microphone access denied. Please allow microphone access."));
+        } else {
+          this.config.onError?.(error);
+        }
+      } else {
+        this.config.onError?.(new Error(String(error)));
+      }
       throw error;
     }
   }
@@ -212,7 +220,7 @@ export class GrokVoiceClient {
 
         case "error":
           console.error("Grok Voice error:", data.error);
-          this.config.onError?.(new Error(data.error?.message || "Unknown error"));
+          this.config.onError?.(new Error(data.error?.message || "Voice API error"));
           break;
       }
     } catch (error) {
@@ -220,14 +228,22 @@ export class GrokVoiceClient {
     }
   }
 
-  private handleError(event: Event): void {
-    console.error("WebSocket error:", event);
+  private handleError(): void {
     this.setStatus("error");
-    this.config.onError?.(new Error("WebSocket connection error"));
+    this.config.onError?.(new Error("Connection failed. Check your API credits at console.x.ai"));
   }
 
-  private handleClose(): void {
+  private handleClose(event: CloseEvent): void {
     this.setStatus("disconnected");
+    if (event.code !== 1000) {
+      let reason = "Connection closed unexpectedly";
+      if (event.code === 1006) {
+        reason = "Connection failed. Possibly invalid token or insufficient credits.";
+      } else if (event.reason) {
+        reason = event.reason;
+      }
+      this.config.onError?.(new Error(reason));
+    }
     this.cleanup();
   }
 

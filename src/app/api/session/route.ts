@@ -11,7 +11,7 @@ export async function POST(request: Request) {
 
   if (!apiKey) {
     return NextResponse.json(
-      { error: "XAI_API_KEY not configured" },
+      { error: "XAI_API_KEY not configured. Add it in Vercel Environment Variables." },
       { status: 500 }
     );
   }
@@ -42,8 +42,18 @@ export async function POST(request: Request) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("xAI API error:", response.status, errorText);
+      
+      let errorMessage = "Failed to create session";
+      if (response.status === 401) {
+        errorMessage = "Invalid API key. Check your XAI_API_KEY.";
+      } else if (response.status === 402 || response.status === 429) {
+        errorMessage = "Insufficient credits or rate limited. Please add credits at console.x.ai";
+      } else if (response.status === 403) {
+        errorMessage = "API key does not have access to Voice API.";
+      }
+      
       return NextResponse.json(
-        { error: "Failed to create session token" },
+        { error: errorMessage },
         { status: response.status }
       );
     }
@@ -63,7 +73,7 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid request", details: error.issues },
+        { error: "Invalid request" },
         { status: 400 }
       );
     }
