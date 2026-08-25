@@ -8,20 +8,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "KI-Telefonassistent | Demo für Kleinunternehmen",
-  description:
-    "Testen Sie unseren intelligenten KI-Telefonassistenten für Zahnarztpraxen, Friseursalons und Handwerksbetriebe. 24/7 erreichbar, professionell und freundlich.",
-  keywords: [
-    "KI Telefonassistent",
-    "Voice AI",
-    "Terminvereinbarung",
-    "Kleinunternehmen",
-    "Chatbot",
-    "Grok Voice",
-  ],
+  title: "Voice Assistant Demo",
+  description: "KI-Telefonassistent für Kleinunternehmen",
   openGraph: {
-    title: "KI-Telefonassistent Demo",
-    description: "Intelligente Telefonassistenten für Kleinunternehmen",
+    title: "Voice Assistant Demo",
+    description: "KI-Telefonassistent für Kleinunternehmen",
     type: "website",
   },
 };
@@ -32,8 +23,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+    <html lang="de" className={`${inter.variable} antialiased`}>
+      <body className="min-h-screen bg-[#0a0a0a] text-white font-sans">
+        {children}
+      </body>
     </html>
   );
 }

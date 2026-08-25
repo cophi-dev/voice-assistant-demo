@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Phone, PhoneOff, Mic, MicOff, Volume2 } from "lucide-react";
 import { GrokVoiceClient, ConnectionStatus } from "@/lib/voice/grok-voice-client";
 import { BusinessConfig } from "@/lib/config/businesses";
 
@@ -9,7 +8,6 @@ interface Transcript {
   id: string;
   speaker: "user" | "assistant";
   text: string;
-  timestamp: Date;
 }
 
 interface VoiceCallProps {
@@ -26,7 +24,6 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
     text: string;
   } | null>(null);
   const [callDuration, setCallDuration] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
 
   const clientRef = useRef<GrokVoiceClient | null>(null);
   const transcriptIdRef = useRef(0);
@@ -72,7 +69,6 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
                 id: `t-${++transcriptIdRef.current}`,
                 speaker,
                 text,
-                timestamp: new Date(),
               },
             ]);
             setCurrentTranscript(null);
@@ -114,29 +110,16 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
     onEnd();
   }, [onEnd]);
 
-  const toggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
-  }, []);
-
   useEffect(() => {
     let mounted = true;
-    
     const initCall = async () => {
-      if (mounted) {
-        await startCall();
-      }
+      if (mounted) await startCall();
     };
-    
     initCall();
-    
     return () => {
       mounted = false;
-      if (clientRef.current) {
-        clientRef.current.disconnect();
-      }
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (clientRef.current) clientRef.current.disconnect();
+      if (timerRef.current) clearInterval(timerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [business.id]);
@@ -144,141 +127,92 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
   const formatDuration = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   const getStatusText = (): string => {
     switch (status) {
-      case "connecting":
-        return "Verbinde...";
-      case "connected":
-        return "Verbunden";
-      case "listening":
-        return "Höre zu...";
-      case "speaking":
-        return "Spricht...";
-      case "error":
-        return "Fehler";
-      default:
-        return "Getrennt";
-    }
-  };
-
-  const getStatusColor = (): string => {
-    switch (status) {
-      case "listening":
-        return "bg-green-500";
-      case "speaking":
-        return "bg-blue-500";
-      case "connecting":
-      case "connected":
-        return "bg-yellow-500";
-      case "error":
-        return "bg-red-500";
-      default:
-        return "bg-gray-500";
+      case "connecting": return "Connecting...";
+      case "connected": return "Connected";
+      case "listening": return "Listening";
+      case "speaking": return "Speaking";
+      case "error": return "Error";
+      default: return "Disconnected";
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div
-          className="p-6 text-center"
-          style={{ backgroundColor: business.color }}
-        >
-          <div className="text-5xl mb-3">{business.icon}</div>
-          <h2 className="text-xl font-bold text-white">{business.name}</h2>
-          <div className="flex items-center justify-center gap-2 mt-2">
-            <span
-              className={`w-2 h-2 rounded-full ${getStatusColor()} animate-pulse`}
-            />
-            <span className="text-white/80 text-sm">{getStatusText()}</span>
-          </div>
-          <div className="text-white/60 text-lg mt-1 font-mono">
-            {formatDuration(callDuration)}
-          </div>
-        </div>
-
-        {/* Transcripts */}
-        <div className="h-64 overflow-y-auto p-4 space-y-3 bg-gray-800">
-          {transcripts.length === 0 && !currentTranscript && status === "listening" && (
-            <div className="text-center text-gray-400 py-8">
-              <Volume2 className="w-8 h-8 mx-auto mb-2 animate-pulse" />
-              <p>Sagen Sie etwas...</p>
+    <div className="fixed inset-0 bg-[#0a0a0a] z-50 flex flex-col">
+      {/* Header */}
+      <div className="border-b border-neutral-800 px-6 py-4">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">{business.icon}</span>
+            <div>
+              <h2 className="font-medium text-white text-sm">{business.name}</h2>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  status === "listening" ? "bg-green-500" :
+                  status === "speaking" ? "bg-orange-500" :
+                  status === "error" ? "bg-red-500" :
+                  "bg-neutral-500"
+                }`} />
+                <span className="text-xs text-neutral-500">{getStatusText()}</span>
+              </div>
             </div>
+          </div>
+          <span className="text-neutral-500 text-sm font-mono">{formatDuration(callDuration)}</span>
+        </div>
+      </div>
+
+      {/* Transcripts */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-8 space-y-4">
+          {transcripts.length === 0 && !currentTranscript && status === "listening" && (
+            <p className="text-neutral-600 text-center py-12">Start speaking...</p>
           )}
           {transcripts.map((t) => (
-            <div
-              key={t.id}
-              className={`flex ${t.speaker === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                  t.speaker === "user"
-                    ? "bg-blue-600 text-white rounded-br-sm"
-                    : "bg-gray-700 text-gray-100 rounded-bl-sm"
-                }`}
-              >
-                <p className="text-sm">{t.text}</p>
-              </div>
+            <div key={t.id} className={t.speaker === "user" ? "text-right" : "text-left"}>
+              <p className={`inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm ${
+                t.speaker === "user"
+                  ? "bg-orange-500/20 text-orange-100"
+                  : "bg-neutral-800 text-neutral-200"
+              }`}>
+                {t.text}
+              </p>
             </div>
           ))}
           {currentTranscript && (
-            <div
-              className={`flex ${currentTranscript.speaker === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                  currentTranscript.speaker === "user"
-                    ? "bg-blue-600/70 text-white/80 rounded-br-sm"
-                    : "bg-gray-700/70 text-gray-300 rounded-bl-sm"
-                }`}
-              >
-                <p className="text-sm">{currentTranscript.text}</p>
-              </div>
+            <div className={currentTranscript.speaker === "user" ? "text-right" : "text-left"}>
+              <p className={`inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm opacity-70 ${
+                currentTranscript.speaker === "user"
+                  ? "bg-orange-500/20 text-orange-100"
+                  : "bg-neutral-800 text-neutral-200"
+              }`}>
+                {currentTranscript.text}
+              </p>
             </div>
           )}
           <div ref={transcriptsEndRef} />
         </div>
+      </div>
 
-        {/* Error message */}
-        {error && (
-          <div className="px-4 py-2 bg-red-900/50 text-red-200 text-sm text-center">
-            {error}
-          </div>
-        )}
+      {/* Error */}
+      {error && (
+        <div className="px-6 py-3 bg-red-950/50 border-t border-red-900/50">
+          <p className="text-red-400 text-sm text-center">{error}</p>
+        </div>
+      )}
 
-        {/* Controls */}
-        <div className="p-6 bg-gray-900 flex items-center justify-center gap-6">
-          <button
-            onClick={toggleMute}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-              isMuted
-                ? "bg-red-500 hover:bg-red-600"
-                : "bg-gray-700 hover:bg-gray-600"
-            }`}
-            aria-label={isMuted ? "Unmute" : "Mute"}
-          >
-            {isMuted ? (
-              <MicOff className="w-6 h-6 text-white" />
-            ) : (
-              <Mic className="w-6 h-6 text-white" />
-            )}
-          </button>
-
+      {/* Controls */}
+      <div className="border-t border-neutral-800 px-6 py-6">
+        <div className="max-w-2xl mx-auto flex justify-center">
           <button
             onClick={endCall}
-            className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-lg"
-            aria-label="End call"
+            className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-full transition-colors"
           >
-            <PhoneOff className="w-7 h-7 text-white" />
+            End Call
           </button>
-
-          <div className="w-14 h-14 rounded-full bg-gray-700 flex items-center justify-center">
-            <Phone className="w-6 h-6 text-green-400" />
-          </div>
         </div>
       </div>
     </div>
