@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { GrokVoiceClient, ConnectionStatus } from "@/lib/voice/grok-voice-client";
 import { BusinessConfig } from "@/lib/config/businesses";
 
-const DEMO_DURATION_SECONDS = 30;
+const DEMO_DURATION_SECONDS = 60;
 const WARNING_THRESHOLD_SECONDS = 10;
 
 interface VoiceCallProps {
