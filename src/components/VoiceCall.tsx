@@ -22,6 +22,8 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
   const [currentUserText, setCurrentUserText] = useState("");
   const [currentAssistantText, setCurrentAssistantText] = useState("");
   const [callDuration, setCallDuration] = useState(0);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
 
   const clientRef = useRef<GrokVoiceClient | null>(null);
   const transcriptIdRef = useRef(0);
@@ -39,6 +41,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
   const startCall = useCallback(async () => {
     setError(null);
     setStatus("connecting");
+    setDebugLogs([]);
 
     try {
       const response = await fetch("/api/session", {
@@ -85,6 +88,9 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
         onError: (err) => {
           setError(err.message);
           setStatus("error");
+        },
+        onDebug: (msg) => {
+          setDebugLogs((prev) => [...prev.slice(-50), `${new Date().toLocaleTimeString()}: ${msg}`]);
         },
       });
 
@@ -164,9 +170,31 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
               </div>
             </div>
           </div>
-          <span className="text-neutral-500 text-sm font-mono">{formatDuration(callDuration)}</span>
+          <div className="flex items-center gap-4">
+            <span className="text-neutral-500 text-sm font-mono">{formatDuration(callDuration)}</span>
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className="text-xs text-neutral-600 hover:text-neutral-400"
+            >
+              {showDebug ? "Hide Debug" : "Debug"}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Debug Panel */}
+      {showDebug && (
+        <div className="border-b border-neutral-800 px-6 py-2 bg-neutral-950 max-h-32 overflow-y-auto">
+          <div className="max-w-2xl mx-auto">
+            {debugLogs.map((log, i) => (
+              <div key={i} className="text-xs text-neutral-500 font-mono">{log}</div>
+            ))}
+            {debugLogs.length === 0 && (
+              <div className="text-xs text-neutral-600">No debug logs yet...</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Transcripts */}
       <div className="flex-1 overflow-y-auto">
