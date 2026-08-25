@@ -12,13 +12,20 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-neutral-800">
         <div className="max-w-3xl mx-auto px-6 py-6">
-          <h1 className="text-xl font-medium text-white">Voice Assistant</h1>
-          <p className="text-neutral-500 text-sm mt-1">Demo für Kleinunternehmen</p>
+          <h1 className="text-xl font-medium text-white">Phonely</h1>
+          <p className="text-neutral-500 text-sm mt-1">KI-Telefonassistent für Unternehmen</p>
         </div>
       </header>
 
       {/* Main */}
       <main className="max-w-3xl mx-auto px-6 py-12">
+        <div className="mb-8">
+          <p className="text-neutral-400 text-sm">
+            Wählen Sie ein Demo-Unternehmen und führen Sie ein Testgespräch.
+            Der Assistent begrüßt Sie und kann Termine buchen.
+          </p>
+        </div>
+
         <div className="space-y-3">
           {businesses.map((business) => (
             <button
@@ -44,13 +51,6 @@ export default function Home() {
               </div>
             </button>
           ))}
-        </div>
-
-        {/* Info */}
-        <div className="mt-16 text-center">
-          <p className="text-neutral-600 text-sm">
-            Wählen Sie ein Unternehmen und sprechen Sie mit dem KI-Assistenten
-          </p>
         </div>
       </main>
 

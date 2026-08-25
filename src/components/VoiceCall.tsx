@@ -19,10 +19,8 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [error, setError] = useState<string | null>(null);
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
-  const [currentTranscript, setCurrentTranscript] = useState<{
-    speaker: "user" | "assistant";
-    text: string;
-  } | null>(null);
+  const [currentUserText, setCurrentUserText] = useState("");
+  const [currentAssistantText, setCurrentAssistantText] = useState("");
   const [callDuration, setCallDuration] = useState(0);
 
   const clientRef = useRef<GrokVoiceClient | null>(null);
@@ -36,7 +34,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [transcripts, currentTranscript, scrollToBottom]);
+  }, [transcripts, currentUserText, currentAssistantText, scrollToBottom]);
 
   const startCall = useCallback(async () => {
     setError(null);
@@ -62,21 +60,26 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
         systemPrompt: businessData.systemPrompt,
         onStatusChange: setStatus,
         onTranscript: (text, isFinal, speaker) => {
-          if (isFinal) {
-            setTranscripts((prev) => [
-              ...prev,
-              {
-                id: `t-${++transcriptIdRef.current}`,
-                speaker,
-                text,
-              },
-            ]);
-            setCurrentTranscript(null);
+          if (speaker === "user") {
+            if (isFinal) {
+              setTranscripts((prev) => [
+                ...prev,
+                { id: `t-${++transcriptIdRef.current}`, speaker: "user", text },
+              ]);
+              setCurrentUserText("");
+            } else {
+              setCurrentUserText(text);
+            }
           } else {
-            setCurrentTranscript((prev) => ({
-              speaker,
-              text: prev?.speaker === speaker ? prev.text + text : text,
-            }));
+            if (isFinal) {
+              setTranscripts((prev) => [
+                ...prev,
+                { id: `t-${++transcriptIdRef.current}`, speaker: "assistant", text },
+              ]);
+              setCurrentAssistantText("");
+            } else {
+              setCurrentAssistantText((prev) => prev + text);
+            }
           }
         },
         onError: (err) => {
@@ -132,12 +135,12 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
 
   const getStatusText = (): string => {
     switch (status) {
-      case "connecting": return "Connecting...";
-      case "connected": return "Connected";
-      case "listening": return "Listening";
-      case "speaking": return "Speaking";
-      case "error": return "Error";
-      default: return "Disconnected";
+      case "connecting": return "Verbinde...";
+      case "connected": return "Verbunden";
+      case "listening": return "Hört zu";
+      case "speaking": return "Spricht";
+      case "error": return "Fehler";
+      default: return "Getrennt";
     }
   };
 
@@ -153,7 +156,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
               <div className="flex items-center gap-2 mt-0.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${
                   status === "listening" ? "bg-green-500" :
-                  status === "speaking" ? "bg-orange-500" :
+                  status === "speaking" ? "bg-orange-500 animate-pulse" :
                   status === "error" ? "bg-red-500" :
                   "bg-neutral-500"
                 }`} />
@@ -168,31 +171,38 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
       {/* Transcripts */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-6 py-8 space-y-4">
-          {transcripts.length === 0 && !currentTranscript && status === "listening" && (
-            <p className="text-neutral-600 text-center py-12">Start speaking...</p>
+          {transcripts.length === 0 && !currentAssistantText && status === "listening" && (
+            <p className="text-neutral-600 text-center py-12">Warte auf Begrüßung...</p>
           )}
+          
           {transcripts.map((t) => (
             <div key={t.id} className={t.speaker === "user" ? "text-right" : "text-left"}>
               <p className={`inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm ${
                 t.speaker === "user"
-                  ? "bg-orange-500/20 text-orange-100"
-                  : "bg-neutral-800 text-neutral-200"
+                  ? "bg-neutral-800 text-neutral-200"
+                  : "bg-orange-500/20 text-orange-100"
               }`}>
                 {t.text}
               </p>
             </div>
           ))}
-          {currentTranscript && (
-            <div className={currentTranscript.speaker === "user" ? "text-right" : "text-left"}>
-              <p className={`inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm opacity-70 ${
-                currentTranscript.speaker === "user"
-                  ? "bg-orange-500/20 text-orange-100"
-                  : "bg-neutral-800 text-neutral-200"
-              }`}>
-                {currentTranscript.text}
+          
+          {/* Current streaming text */}
+          {currentAssistantText && (
+            <div className="text-left">
+              <p className="inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm bg-orange-500/20 text-orange-100 opacity-70">
+                {currentAssistantText}
               </p>
             </div>
           )}
+          {currentUserText && (
+            <div className="text-right">
+              <p className="inline-block max-w-[85%] px-4 py-2 rounded-2xl text-sm bg-neutral-800 text-neutral-200 opacity-70">
+                {currentUserText}
+              </p>
+            </div>
+          )}
+          
           <div ref={transcriptsEndRef} />
         </div>
       </div>
@@ -211,7 +221,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
             onClick={endCall}
             className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-full transition-colors"
           >
-            End Call
+            Auflegen
           </button>
         </div>
       </div>
