@@ -17,7 +17,6 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
 
   const clientRef = useRef<GrokVoiceClient | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
   const animationRef = useRef<number | null>(null);
 
   const startCall = useCallback(async () => {
@@ -104,7 +103,7 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
       case "connecting": return "Verbinde...";
       case "connected": return "Verbunden";
       case "listening": return "H\u00f6rt zu";
-      case "speaking": return "Lexi spricht";
+      case "speaking": return `${business.assistantName} spricht`;
       case "error": return "Fehler";
       default: return "Getrennt";
     }
@@ -163,21 +162,28 @@ export function VoiceCall({ business, onEnd }: VoiceCallProps) {
           </div>
 
           {/* Status indicator */}
-          <div className="flex items-center gap-3">
-            <span className={`w-2 h-2 rounded-full ${
-              status === "speaking" ? "bg-orange-500 animate-pulse" :
-              status === "listening" ? "bg-green-500" :
-              status === "connecting" ? "bg-yellow-500 animate-pulse" :
-              status === "error" ? "bg-red-500" :
-              "bg-neutral-600"
-            }`} />
-            <span className="text-neutral-400 text-sm">
-              {status === "speaking" ? "Lexi spricht..." : 
-               status === "listening" ? "Ich h\u00f6re zu..." :
-               status === "connecting" ? "Verbinde..." :
-               status === "error" ? "Verbindungsfehler" :
-               ""}
-            </span>
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-3">
+              <span className={`w-2 h-2 rounded-full ${
+                status === "speaking" ? "bg-orange-500 animate-pulse" :
+                status === "listening" ? "bg-green-500" :
+                status === "connecting" ? "bg-yellow-500 animate-pulse" :
+                status === "error" ? "bg-red-500" :
+                "bg-neutral-600"
+              }`} />
+              <span className="text-neutral-400 text-sm">
+                {status === "speaking" ? `${business.assistantName} spricht...` : 
+                 status === "listening" ? "Ich h\u00f6re zu..." :
+                 status === "connecting" ? "Verbinde..." :
+                 status === "error" ? "Verbindungsfehler" :
+                 ""}
+              </span>
+            </div>
+            {status === "listening" && (
+              <span className="text-neutral-600 text-xs">
+                {business.assistantPersonality}
+              </span>
+            )}
           </div>
         </div>
       </div>

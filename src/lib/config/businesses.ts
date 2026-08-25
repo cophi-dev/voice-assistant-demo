@@ -4,6 +4,8 @@ export interface BusinessConfig {
   type: "dentist" | "hairdresser" | "handyman";
   icon: string;
   description: string;
+  assistantName: string;
+  assistantPersonality: string;
   color: string;
   voice: string;
   systemPrompt: string;
@@ -16,9 +18,11 @@ export const businesses: BusinessConfig[] = [
     type: "dentist",
     icon: "🦷",
     description: "Termine, Notfälle, Preisauskunft",
+    assistantName: "Carina",
+    assistantPersonality: "Einfühlsam, beruhigend & professionell",
     color: "#0EA5E9",
-    voice: "carina", // Soft, empathetic, and soothing - perfect for medical
-    systemPrompt: `Du bist Lexi, die freundliche Telefonassistentin der Zahnarztpraxis Dr. Müller.
+    voice: "carina",
+    systemPrompt: `Du bist Carina, die freundliche Telefonassistentin der Zahnarztpraxis Dr. Müller.
 
 WICHTIG: Begrüße den Anrufer sofort herzlich. Sprich natürlich und warmherzig, nicht wie ein Roboter.
 
@@ -57,9 +61,11 @@ Beende Gespräche freundlich und natürlich.`,
     type: "hairdresser",
     icon: "💇",
     description: "Haarschnitt, Färben, Styling",
+    assistantName: "Luna",
+    assistantPersonality: "Warmherzig, geduldig & entspannt",
     color: "#EC4899",
-    voice: "luna", // Gentle, patient, and deeply nurturing
-    systemPrompt: `Du bist Lexi, die herzliche Telefonassistentin vom Friseursalon Bella.
+    voice: "luna",
+    systemPrompt: `Du bist Luna, die herzliche Telefonassistentin vom Friseursalon Bella.
 
 WICHTIG: Begrüße den Anrufer sofort locker und freundlich. Sprich natürlich, wie eine echte Person.
 
@@ -105,9 +111,11 @@ Beende Gespräche locker und freundlich.`,
     type: "handyman",
     icon: "🔧",
     description: "Sanitär, Heizung, Elektro, Notdienst",
+    assistantName: "Atlas",
+    assistantPersonality: "Kompetent, zuverlässig & sachlich",
     color: "#F59E0B",
-    voice: "atlas", // Confident, commanding, and reassuring
-    systemPrompt: `Du bist Lexi, der Telefonassistent von Handwerker Schmidt.
+    voice: "atlas",
+    systemPrompt: `Du bist Atlas, der Telefonassistent von Handwerker Schmidt.
 
 WICHTIG: Begrüße den Anrufer sofort freundlich und kompetent. Sprich natürlich, nicht roboterhaft.
 

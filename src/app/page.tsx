@@ -13,7 +13,7 @@ export default function Home() {
       <header className="border-b border-neutral-800">
         <div className="max-w-3xl mx-auto px-6 py-6">
           <h1 className="text-xl font-medium text-white">Lexi</h1>
-          <p className="text-neutral-500 text-sm mt-1">KI-Telefonassistentin für Unternehmen</p>
+          <p className="text-neutral-500 text-sm mt-1">KI-Telefonassistenten für Unternehmen</p>
         </div>
       </header>
 
@@ -21,8 +21,8 @@ export default function Home() {
       <main className="max-w-3xl mx-auto px-6 py-12">
         <div className="mb-8">
           <p className="text-neutral-400 text-sm">
-            Wählen Sie ein Demo-Unternehmen und führen Sie ein Testgespräch.
-            Lexi begrüßt Sie und kann Termine buchen.
+            Wählen Sie ein Demo-Unternehmen und sprechen Sie mit dem KI-Assistenten.
+            Jeder Assistent hat eine eigene Persönlichkeit und Stimme.
           </p>
         </div>
 
@@ -33,8 +33,8 @@ export default function Home() {
               onClick={() => setActiveBusiness(business)}
               className="w-full text-left p-5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 hover:bg-neutral-800/50 transition-all group"
             >
-              <div className="flex items-center gap-4">
-                <span className="text-2xl">{business.icon}</span>
+              <div className="flex items-start gap-4">
+                <span className="text-2xl mt-0.5">{business.icon}</span>
                 <div className="flex-1 min-w-0">
                   <h2 className="font-medium text-white group-hover:text-orange-400 transition-colors">
                     {business.name}
@@ -42,8 +42,16 @@ export default function Home() {
                   <p className="text-sm text-neutral-500 mt-0.5">
                     {business.description}
                   </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-xs px-2 py-1 rounded-full bg-neutral-800 text-neutral-300">
+                      {business.assistantName}
+                    </span>
+                    <span className="text-xs text-neutral-600">
+                      {business.assistantPersonality}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-neutral-600 group-hover:text-orange-400 transition-colors">
+                <div className="text-neutral-600 group-hover:text-orange-400 transition-colors mt-2">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                   </svg>
